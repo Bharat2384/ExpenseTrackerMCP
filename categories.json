@@ -1,0 +1,48 @@
+{
+  "categories": [
+    {
+      "name": "Food & Dining",
+      "subcategories": ["Groceries", "Restaurants", "Coffee Shops", "Fast Food", "Food Delivery"]
+    },
+    {
+      "name": "Transportation",
+      "subcategories": ["Fuel", "Public Transit", "Ride Share", "Parking", "Vehicle Maintenance", "Tolls"]
+    },
+    {
+      "name": "Housing",
+      "subcategories": ["Rent", "Mortgage", "Utilities", "Internet", "Maintenance", "Furniture"]
+    },
+    {
+      "name": "Health & Wellness",
+      "subcategories": ["Doctor Visits", "Pharmacy", "Gym Membership", "Insurance", "Dental"]
+    },
+    {
+      "name": "Entertainment",
+      "subcategories": ["Movies", "Streaming Subscriptions", "Gaming", "Events & Concerts", "Hobbies"]
+    },
+    {
+      "name": "Shopping",
+      "subcategories": ["Clothing", "Electronics", "Home Goods", "Personal Care", "Gifts"]
+    },
+    {
+      "name": "Education",
+      "subcategories": ["Tuition", "Books", "Online Courses", "Certifications"]
+    },
+    {
+      "name": "Travel",
+      "subcategories": ["Flights", "Hotels", "Car Rental", "Travel Insurance", "Sightseeing"]
+    },
+    {
+      "name": "Bills & Utilities",
+      "subcategories": ["Electricity", "Water", "Gas", "Phone", "Subscriptions"]
+    },
+    {
+      "name": "Investments & Savings",
+      "subcategories": ["Stocks", "Mutual Funds", "Retirement Fund", "Emergency Fund"]
+    },
+    {
+      "name": "Miscellaneous",
+      "subcategories": ["Donations", "Pet Care", "Bank Fees", "Uncategorized"]
+    }
+  ]
+}
