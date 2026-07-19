@@ -1,5 +1,13 @@
+# IMPORTS EXPLANATION:
+# - sqlite3: Standard library for SYNCHRONOUS database operations
+#   ISSUE: Used for synchronous init to avoid asyncio.run() conflicts
+# - aiosqlite: Async wrapper around sqlite3 for non-blocking database calls
+#   ISSUE: The original code was missing this dependency (>= 0.22.1)
+# - aiofiles: Async file I/O operations (previously used blocking open())
+#   ISSUE: Original code used synchronous open() in an async function which blocks the event loop
 import os
 import json
+import sqlite3
 import aiosqlite
 import aiofiles
 from fastmcp import FastMCP
@@ -11,21 +19,48 @@ mcp = FastMCP("Expense Tracker")
 
 
 # ---------------------------
-# INIT DB (async)
+# INIT DB (sync) - CHANGED FROM ASYNC TO SYNC
 # ---------------------------
-async def init_db():
-    async with aiosqlite.connect(DB_PATH) as c:
-        await c.execute("""
-            CREATE TABLE IF NOT EXISTS EXPENSES_V1 (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                amount REAL NOT NULL,
-                category TEXT NOT NULL,
-                subcategory TEXT DEFAULT '',
-                note TEXT DEFAULT ''
-            )
-        """)
-        await c.commit()
+# PROBLEM #1 (Original code used async init_db):
+#   - Original: Used "async def init_db()" with asyncio.run(init_db())
+#   - Error: RuntimeError - asyncio.run() cannot be called from a running event loop
+#   - Why: FastMCP runs its own event loop. Calling asyncio.run() during module import
+#     tries to create a nested event loop, which Python doesn't allow.
+#
+# SOLUTION: Use synchronous sqlite3 for database initialization
+#   - sqlite3 is part of Python standard library
+#   - No event loop conflicts
+#   - Database setup only happens once on module load
+#   - Actual tool operations still use async aiosqlite for non-blocking I/O
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS EXPENSES_V1 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            subcategory TEXT DEFAULT '',
+            note TEXT DEFAULT ''
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+# Initialize database on module load (happens once when server starts)
+# PROBLEM #2 (Original: Database was never initialized when FastMCP runs):
+#   - Original: init_db() only called if __name__ == "__main__"
+#   - Error: "unable to open database file" when using FastMCP as a server
+#   - Why: When FastMCP imports the module as a server, it skips the main block,
+#     so the database was never created. Then add_expense() couldn't find the table.
+#
+# SOLUTION: Call init_db() at module level (outside the if __name__ block)
+#   - Ensures database is created whenever module is imported
+#   - Works with both direct execution and FastMCP server import
+init_db()
 
 
 # ---------------------------
@@ -229,23 +264,25 @@ async def get_id(date: str | None = None,
 
 
 # ---------------------------
-# RESOURCE (async)
+# RESOURCE (async) - CHANGED TO USE aiofiles
 # ---------------------------
+# PROBLEM #3 (Original used blocking open() in async function):
+#   - Original: Used "with open(...)" inside async function
+#   - Issue: open() is BLOCKING (synchronous), not async
+#   - Why it's bad: When async function awaits on blocking I/O, it BLOCKS the entire
+#     event loop, preventing other tools from running concurrently
+#   - Symptom: Server becomes unresponsive during file reads
+#
+# SOLUTION: Use aiofiles for non-blocking file I/O
+#   - aiofiles.open() returns an awaitable file object
+#   - Doesn't block the event loop
+#   - Other async operations can run while reading files
+#   - Added aiofiles>=23.0.0 to pyproject.toml dependencies
+
 @mcp.resource("expense://categories", mime_type="application/json")
 async def categories():
-    async with open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
+    async with aiofiles.open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
         return await f.read()
-
-
-# ---------------------------
-# INITIALIZE DB ON MODULE LOAD
-# ---------------------------
-import asyncio
-
-async def _init():
-    await init_db()
-
-asyncio.run(_init())
 
 
 # ---------------------------
