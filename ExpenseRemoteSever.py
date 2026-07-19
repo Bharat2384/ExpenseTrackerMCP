@@ -1,6 +1,7 @@
 import os
 import json
 import aiosqlite
+import aiofiles
 from fastmcp import FastMCP
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "expense.db")
@@ -237,9 +238,18 @@ async def categories():
 
 
 # ---------------------------
+# INITIALIZE DB ON MODULE LOAD
+# ---------------------------
+import asyncio
+
+async def _init():
+    await init_db()
+
+asyncio.run(_init())
+
+
+# ---------------------------
 # RUN SERVER
 # ---------------------------
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(init_db())
     mcp.run(transport="http", host="0.0.0.0", port=8000)
