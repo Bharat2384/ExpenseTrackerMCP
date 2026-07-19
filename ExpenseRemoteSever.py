@@ -36,6 +36,14 @@ mcp = FastMCP("Expense Tracker")
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
+    # FIX #5: Enable WAL (Write-Ahead Logging) mode
+    # - WAL mode improves concurrency and write performance
+    # - Allows readers and writers to work together without blocking
+    # - Creates -wal and -shm files, so directory must have write permissions
+    c.execute("PRAGMA journal_mode=WAL")
+
+    # Create table if it doesn't exist
     c.execute("""
         CREATE TABLE IF NOT EXISTS EXPENSES_V1 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,7 +68,25 @@ def init_db():
 # SOLUTION: Call init_db() at module level (outside the if __name__ block)
 #   - Ensures database is created whenever module is imported
 #   - Works with both direct execution and FastMCP server import
+
+# PROBLEM #5 (SQLite readonly database error):
+#   - Error: "attempt to write a readonly database"
+#   - Cause: SQLite needs write access to directory for temp files (-wal, -shm)
+#   - Solution: Enable WAL mode and ensure proper permissions
 init_db()
+
+
+# ---------------------------
+# DATABASE CONNECTION HELPER
+# ---------------------------
+# FIX #5: Configure aiosqlite connections for proper write access
+# - timeout=30: Wait up to 30 seconds if database is locked (retry mechanism)
+# - isolation_level=None: Use autocommit mode so we control transactions explicitly
+async def get_db():
+    """Open a configured database connection with proper settings."""
+    db = await aiosqlite.connect(DB_PATH, timeout=30)
+    db.isolation_level = None  # Autocommit mode
+    return db
 
 
 # ---------------------------
@@ -69,13 +95,18 @@ init_db()
 @mcp.tool
 async def add_expense(date, amount, category, subcategory, note):
     """Add a new expense entry to the database."""
-    async with aiosqlite.connect(DB_PATH) as c:
-        cur = await c.execute(
-            "INSERT INTO EXPENSES_V1(date, category, amount, subcategory, note) VALUES (?, ?, ?, ?, ?)",
-            (date, category, amount, subcategory, note)
-        )
-        await c.commit()
-        return {"status": "ok", "id": cur.lastrowid}
+    # FIX #5: Use configured connection with timeout and proper transaction handling
+    try:
+        async with await get_db() as c:
+            cur = await c.execute(
+                "INSERT INTO EXPENSES_V1(date, category, amount, subcategory, note) VALUES (?, ?, ?, ?, ?)",
+                (date, category, amount, subcategory, note)
+            )
+            await c.commit()
+            return {"status": "ok", "id": cur.lastrowid}
+    except Exception as e:
+        # Better error reporting for debugging
+        return {"status": "error", "message": f"Database error: {str(e)}"}
 
 
 # ---------------------------
@@ -107,22 +138,26 @@ async def list_expenses(start_date: str | None = None,
         query += " AND category = ?"
         params.append(category)
 
-    async with aiosqlite.connect(DB_PATH) as c:
-        cur = await c.execute(query, params)
-        rows = await cur.fetchall()
+    # FIX #5: Use configured connection with timeout
+    try:
+        async with await get_db() as c:
+            cur = await c.execute(query, params)
+            rows = await cur.fetchall()
 
-    expenses = [
-        {
-            "date": r[0],
-            "amount": r[1],
-            "category": r[2],
-            "subcategory": r[3],
-            "note": r[4],
-        }
-        for r in rows
-    ]
+        expenses = [
+            {
+                "date": r[0],
+                "amount": r[1],
+                "category": r[2],
+                "subcategory": r[3],
+                "note": r[4],
+            }
+            for r in rows
+        ]
 
-    return {"status": "ok", "count": len(expenses), "expenses": expenses}
+        return {"status": "ok", "count": len(expenses), "expenses": expenses}
+    except Exception as e:
+        return {"status": "error", "message": f"Database error: {str(e)}"}
 
 
 # ---------------------------
@@ -152,12 +187,16 @@ async def delete_expenses(id: int | None = None,
         query += " AND category = ?"
         params.append(category)
 
-    async with aiosqlite.connect(DB_PATH) as c:
-        cur = await c.execute(query, params)
-        await c.commit()
-        deleted_count = cur.rowcount
+    # FIX #5: Use configured connection with timeout
+    try:
+        async with await get_db() as c:
+            cur = await c.execute(query, params)
+            await c.commit()
+            deleted_count = cur.rowcount
 
-    return {"status": "ok", "deleted": deleted_count}
+        return {"status": "ok", "deleted": deleted_count}
+    except Exception as e:
+        return {"status": "error", "message": f"Database error: {str(e)}"}
 
 
 # ---------------------------
@@ -209,12 +248,16 @@ async def update_expense(id: int | None = None,
 
     params.append(id)
 
-    async with aiosqlite.connect(DB_PATH) as c:
-        cur = await c.execute(query, params)
-        await c.commit()
-        updated_count = cur.rowcount
+    # FIX #5: Use configured connection with timeout
+    try:
+        async with await get_db() as c:
+            cur = await c.execute(query, params)
+            await c.commit()
+            updated_count = cur.rowcount
 
-    return {"status": "ok", "updated": updated_count}
+        return {"status": "ok", "updated": updated_count}
+    except Exception as e:
+        return {"status": "error", "message": f"Database error: {str(e)}"}
 
 
 # ---------------------------
@@ -254,13 +297,17 @@ async def get_id(date: str | None = None,
         query += " AND note LIKE ?"
         params.append(f"%{note}%")
 
-    async with aiosqlite.connect(DB_PATH) as c:
-        cur = await c.execute(query, params)
-        rows = await cur.fetchall()
+    # FIX #5: Use configured connection with timeout
+    try:
+        async with await get_db() as c:
+            cur = await c.execute(query, params)
+            rows = await cur.fetchall()
 
-    ids = [r[0] for r in rows]
+        ids = [r[0] for r in rows]
 
-    return {"status": "ok", "count": len(ids), "ids": ids}
+        return {"status": "ok", "count": len(ids), "ids": ids}
+    except Exception as e:
+        return {"status": "error", "message": f"Database error: {str(e)}"}
 
 
 # ---------------------------
