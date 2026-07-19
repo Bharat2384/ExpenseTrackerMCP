@@ -5,15 +5,37 @@
 #   ISSUE: The original code was missing this dependency (>= 0.22.1)
 # - aiofiles: Async file I/O operations (previously used blocking open())
 #   ISSUE: Original code used synchronous open() in an async function which blocks the event loop
+# - tempfile: Get system temp directory for cloud-safe database storage
+#   ISSUE: Cloud environments (FastMCP Cloud) have read-only app filesystems
 import os
 import json
 import sqlite3
+import tempfile
 import aiosqlite
 import aiofiles
 from fastmcp import FastMCP
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "expense.db")
-CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
+# CLOUD DEPLOYMENT FIX:
+#   - Local development: Uses ./expense.db (local directory)
+#   - Cloud deployment (FastMCP Cloud): Uses system temp directory
+#   - The FastMCP Cloud environment has read-only application filesystem
+#   - Must use writable temp directory (e.g., /tmp on Linux, %TEMP% on Windows)
+
+APP_DIR = os.path.dirname(__file__)
+
+# Check if running in cloud environment (no write access to app dir)
+# If app dir not writable, use system temp directory
+try:
+    if os.access(APP_DIR, os.W_OK):
+        DB_PATH = os.path.join(APP_DIR, "expense.db")
+    else:
+        # Cloud environment: use writable temp directory
+        DB_PATH = os.path.join(tempfile.gettempdir(), "expense.db")
+except Exception:
+    # Fallback to temp directory
+    DB_PATH = os.path.join(tempfile.gettempdir(), "expense.db")
+
+CATEGORIES_PATH = os.path.join(APP_DIR, "categories.json")
 
 mcp = FastMCP("Expense Tracker")
 
@@ -325,11 +347,34 @@ async def get_id(date: str | None = None,
 #   - Doesn't block the event loop
 #   - Other async operations can run while reading files
 #   - Added aiofiles>=23.0.0 to pyproject.toml dependencies
+#
+# PROBLEM #6 (Cloud deployment: categories.json may not exist or not be readable):
+#   - In cloud environments, application directory is read-only
+#   - categories.json file may not be packaged or accessible
+#   - Solution: Return default categories if file not found
 
 @mcp.resource("expense://categories", mime_type="application/json")
 async def categories():
-    async with aiofiles.open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
-        return await f.read()
+    """Return expense categories from file or default."""
+    try:
+        if os.path.exists(CATEGORIES_PATH):
+            async with aiofiles.open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
+                return await f.read()
+    except Exception:
+        pass
+
+    # Fallback: return default categories if file not found
+    import json
+    default_categories = {
+        "categories": [
+            {"name": "Food", "subcategories": ["General", "Restaurants", "Groceries"]},
+            {"name": "Transportation", "subcategories": ["Gas", "Parking", "Public Transit"]},
+            {"name": "Entertainment", "subcategories": ["Movies", "Games", "Sports"]},
+            {"name": "Utilities", "subcategories": ["Electric", "Water", "Internet"]},
+            {"name": "Other", "subcategories": ["General"]}
+        ]
+    }
+    return json.dumps(default_categories)
 
 
 # ---------------------------
