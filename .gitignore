@@ -13,3 +13,6 @@ wheels/
 expense.db
 main.py
 ExpenseServer.py
+New Text Document.txt
+run_server.py
+server_config.json
